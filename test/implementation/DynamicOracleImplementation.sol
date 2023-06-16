@@ -20,7 +20,7 @@ contract DynamicOracleImplementation is DynamicOracle {
         time = _time;
     }
 
-    function _blockTimestamp() internal view override returns (uint32) {
+    function _blockTimestamp() internal view returns (uint32) {
         return time;
     }
 }

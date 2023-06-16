@@ -9,12 +9,13 @@ import {IAggregatorInterface} from "../interfaces/IAggregatorInterface.sol";
 import {TickMath} from "@uniswap/core-next/contracts/libraries/TickMath.sol";
 import {BalanceDelta} from "@uniswap/core-next/contracts/types/BalanceDelta.sol";
 import {PoolId} from "@uniswap/core-next/contracts/libraries/PoolId.sol";
+import {console} from "forge-std/console.sol";
 
 contract DynamicOracle is BaseHook, IDynamicFeeManager, IAggregatorInterface {
 
     error MustUseDynamicFee();
-    uint32 deployTimestamp;
-
+    uint256 deployTimestamp;
+    uint24 feeCount;
     using PoolId for IPoolManager.PoolKey;
     /// @notice Oracle pools do not have fees because they exist to serve as an oracle for a pair of tokens
     error OnlyOneOraclePoolAllowed();
@@ -32,7 +33,7 @@ contract DynamicOracle is BaseHook, IDynamicFeeManager, IAggregatorInterface {
     mapping(bytes32 => uint256) roundIds;
 
     constructor(IPoolManager _poolManager) BaseHook(_poolManager) {
-        deployTimestamp = _blockTimestamp();
+        deployTimestamp = block.timestamp;
     }
 
     /**
@@ -40,16 +41,11 @@ contract DynamicOracle is BaseHook, IDynamicFeeManager, IAggregatorInterface {
      */
     function getFee(IPoolManager.PoolKey calldata) external view returns (uint24) {
         uint24 startingFee = 3000;
-        uint32 lapsed = _blockTimestamp() - deployTimestamp;
-
-        uint24 totalFee = startingFee + (uint24(lapsed) * 10) / (60*24); // 10 bps a day
+        uint256 lapsed = block.timestamp - deployTimestamp;
+        uint24 totalFee = startingFee + (uint24(lapsed) * 100) / (60); // 100 bps a mi
         return totalFee >= 1000000 ? 1000000 : totalFee;
     }
 
-    /// @dev For mocking
-    function _blockTimestamp() internal view virtual returns (uint32) {
-        return uint32(block.timestamp);
-    }
 
     function getHooksCalls() public pure override returns (Hooks.Calls memory) {
         return Hooks.Calls({
@@ -60,7 +56,7 @@ contract DynamicOracle is BaseHook, IDynamicFeeManager, IAggregatorInterface {
             beforeSwap: false,
             afterSwap: true,
             beforeDonate: false,
-            afterDonate: true
+            afterDonate: false
         });
     }
 
@@ -79,7 +75,7 @@ contract DynamicOracle is BaseHook, IDynamicFeeManager, IAggregatorInterface {
         // This is to limit the fragmentation of pools using this oracle hook. In other words,
         // there may only be one pool per pair of tokens that use this hook. The tick spacing is set to the maximum
         // because we only allow max range liquidity in this pool.
-        if (key.fee != Hooks.DYNAMIC_FEE || key.fee != 0 || key.tickSpacing != poolManager.MAX_TICK_SPACING()) revert OnlyOneOraclePoolAllowed();
+        if (key.fee != Hooks.DYNAMIC_FEE || key.tickSpacing != poolManager.MAX_TICK_SPACING()) revert OnlyOneOraclePoolAllowed();
         return DynamicOracle.beforeInitialize.selector;
     }
 
@@ -120,7 +116,7 @@ contract DynamicOracle is BaseHook, IDynamicFeeManager, IAggregatorInterface {
 
     function _addData(bytes32 key, uint160 val) internal {
 
-        uint256 timeStamp = _blockTimestamp();
+        uint256 timeStamp = block.timestamp;
 
         roundData[key][roundIds[key]] = val;
         latestStamp[key] = timeStamp;

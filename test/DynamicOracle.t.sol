@@ -31,12 +31,12 @@ contract TestDynamicOracle is Test {
     DynamicOracleImplementation dynamicOracle = DynamicOracleImplementation(
         address(
             uint160(
-                Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_MODIFY_POSITION_FLAG| Hooks.AFTER_SWAP_FLAG
+                Hooks.BEFORE_INITIALIZE_FLAG | Hooks.AFTER_MODIFY_POSITION_FLAG| Hooks.AFTER_SWAP_FLAG
             )
         )
     );
 
-    function setup() public {
+    function setUp() public {
 
         token0 = new TestERC20(2**128);
         token1 = new TestERC20(2**128);
@@ -44,7 +44,7 @@ contract TestDynamicOracle is Test {
 
         // Implementing dynamic fees starting at 0
         key = IPoolManager.PoolKey(
-            Currency.wrap(address(token0)), Currency.wrap(address(token1)), 0, MAX_TICK_SPACING, dynamicOracle
+            Currency.wrap(address(token0)), Currency.wrap(address(token1)), type(uint24).max, MAX_TICK_SPACING, dynamicOracle
         );
 
         id = PoolId.toId(key);
@@ -73,9 +73,13 @@ contract TestDynamicOracle is Test {
     function testDynamicFee() public {
 
         uint24 oldFee = dynamicOracle.getFee(key);
-        vm.warp(2000);
+        vm.warp(200);
         uint24 newFee = dynamicOracle.getFee(key);
 
         assertGt(newFee, oldFee, "New Fee should be greater than old Fee");
+    }
+
+    function testOracleAfterSwap() public {
+        
     }
 }
