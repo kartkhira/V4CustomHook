@@ -1,5 +1,3 @@
-forge test --match-contract TestDynamicOracle --match-test testOracleAfterSwap -vvvv
-
 # V4CustomHook
 
 ###
