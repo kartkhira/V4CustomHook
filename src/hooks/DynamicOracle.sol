@@ -1,19 +1,21 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.19;
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.19;
 
 import {IPoolManager} from "@uniswap/core-next/contracts/interfaces/IPoolManager.sol";
 import {IDynamicFeeManager} from "@uniswap/core-next/contracts/interfaces/IDynamicFeeManager.sol";
 import {Hooks} from "@uniswap/core-next/contracts/libraries/Hooks.sol";
 import {BaseHook} from "../BaseHook.sol";
-import {Fees} from "@uniswap/core-next/contracts/libraries/Fees.sol";
 import {IAggregatorInterface} from "../interfaces/IAggregatorInterface.sol";
+import {TickMath} from "@uniswap/core-next/contracts/libraries/TickMath.sol";
+import {BalanceDelta} from "@uniswap/core-next/contracts/types/BalanceDelta.sol";
+import {PoolId} from "@uniswap/core-next/contracts/libraries/PoolId.sol";
 
 contract DynamicOracle is BaseHook, IDynamicFeeManager, IAggregatorInterface {
 
     error MustUseDynamicFee();
-    using Fees for uint24;
     uint32 deployTimestamp;
 
+    using PoolId for IPoolManager.PoolKey;
     /// @notice Oracle pools do not have fees because they exist to serve as an oracle for a pair of tokens
     error OnlyOneOraclePoolAllowed();
 
@@ -25,9 +27,9 @@ contract DynamicOracle is BaseHook, IDynamicFeeManager, IAggregatorInterface {
 
 
     mapping(bytes32 => mapping(uint256 => uint160)) roundData;
-    mapping(bytes32 => uint256) latestTimestamp;
-    mapping(bytes32 => uint256)roundIdTimestamp;
-    mapping(bytes32 => uint256) roundId;
+    mapping(bytes32 => uint256) latestStamp;
+    mapping(bytes32 => mapping(uint256 => uint256)) roundIdTimestamp;
+    mapping(bytes32 => uint256) roundIds;
 
     constructor(IPoolManager _poolManager) BaseHook(_poolManager) {
         deployTimestamp = _blockTimestamp();
@@ -62,21 +64,12 @@ contract DynamicOracle is BaseHook, IDynamicFeeManager, IAggregatorInterface {
         });
     }
 
+
     /**
      * This Hook makes sure dynamic fees is enabled
      * @param key Pool Key
      */
-    function beforeInitialize(address, IPoolManager.PoolKey calldata key, uint160)
-        external
-        pure
-        override
-        returns (bytes4)
-    {
-        if (!key.fee.isDynamicFee()) revert MustUseDynamicFee();
-        return DynamicOracle.beforeInitialize.selector;
-    }
-
-    function beforeInitialize(address, IPoolManager.PoolKey calldata key, uint160)
+    function beforeInitialize(address, IPoolManager.PoolKey calldata key, uint160 price)
         external
         view
         override
@@ -86,14 +79,15 @@ contract DynamicOracle is BaseHook, IDynamicFeeManager, IAggregatorInterface {
         // This is to limit the fragmentation of pools using this oracle hook. In other words,
         // there may only be one pool per pair of tokens that use this hook. The tick spacing is set to the maximum
         // because we only allow max range liquidity in this pool.
-        if (key.fee != 0 || key.tickSpacing != poolManager.MAX_TICK_SPACING()) revert OnlyOneOraclePoolAllowed();
+        if (key.fee != Hooks.DYNAMIC_FEE || key.fee != 0 || key.tickSpacing != poolManager.MAX_TICK_SPACING()) revert OnlyOneOraclePoolAllowed();
         return DynamicOracle.beforeInitialize.selector;
     }
 
     function afterModifyPosition(
         address,
         IPoolManager.PoolKey calldata key,
-        IPoolManager.ModifyPositionParams calldata params
+        IPoolManager.ModifyPositionParams calldata params,
+        BalanceDelta 
     ) external override poolManagerOnly returns (bytes4) {
         if (params.liquidityDelta < 0) revert OraclePoolMustLockLiquidity();
         int24 maxTickSpacing = poolManager.MAX_TICK_SPACING();
@@ -101,11 +95,13 @@ contract DynamicOracle is BaseHook, IDynamicFeeManager, IAggregatorInterface {
             params.tickLower != TickMath.minUsableTick(maxTickSpacing)
                 || params.tickUpper != TickMath.maxUsableTick(maxTickSpacing)
         ) revert OraclePositionsMustBeFullRange();
-        _updateOracle(key);
         return DynamicOracle.afterModifyPosition.selector;
     }
 
-    function afterSwap(address, IPoolManager.PoolKey calldata key, IPoolManager.SwapParams calldata)
+    function afterSwap(address, 
+                       IPoolManager.PoolKey calldata key, 
+                       IPoolManager.SwapParams calldata,
+                       BalanceDelta)
         external
         override
         poolManagerOnly
@@ -115,55 +111,53 @@ contract DynamicOracle is BaseHook, IDynamicFeeManager, IAggregatorInterface {
         return DynamicOracle.afterSwap.selector;
     }
 
-
     function _updateOracle(IPoolManager.PoolKey calldata key) internal {
 
         bytes32 id = key.toId();
-        (uint160 currentPrice,) = poolManager.getSlot0(id);
+        (uint160 currentPrice,,) = poolManager.getSlot0(id);
         _addData(keccak256(abi.encode(key)), currentPrice);
     }
 
     function _addData(bytes32 key, uint160 val) internal {
 
-        uint256 memory timeStamp = _blockTimestamp();
+        uint256 timeStamp = _blockTimestamp();
 
-        roundData[key][roundId[key]] = val;
-        latestTimestamp[key] = timeStamp;
-        roundIdTimestamp[key][roundId[key]] = timeStamp;
-        roundId[key]++;
+        roundData[key][roundIds[key]] = val;
+        latestStamp[key] = timeStamp;
+        roundIdTimestamp[key][roundIds[key]] = timeStamp;
+        roundIds[key]++;
     }
 
+    function latestAnswer(bytes32 key) external view returns(uint160) {
 
-    function latestAnswer(IPoolManager.PoolKey calldata key) external view returns(uint160) {
-
-        bytes32 pKey = keccak256(abi.encode(key));
-        return roundData[pKey][roundId[pKey]];
+        //bytes32 pKey = keccak256(abi.encode(key));
+        return roundData[key][roundIds[key]];
     }
 
-    function latestTimestamp(IPoolManager.PoolKey calldata key) external view returns(uin256) {
+    function latestTimestamp(bytes32 key) external view returns(uint256) {
 
-        return latestTimestamp[keccak256(abi.encode(key))];
+        return latestStamp[key];
     }
 
-    function getAnswer(IPoolManager.PoolKey calldata key, 
+    function getAnswer(bytes32 key, 
                         uint256 roundId) 
                         external view returns (uint160){
 
 
-        return roundData[keccak256(abi.encode(key))][roundId];          
+        return roundData[key][roundId];          
 
     }
 
-    function latestRound(IPoolManager.PoolKey calldata key) external view returns (uint256){
+    function latestRound(bytes32 key) external view returns (uint256){
 
-        return roundId[keccak256(abi.encode(key))];
+        return roundIds[key];
 
     }
 
-    function getTimestamp(IPoolManager.PoolKey calldata key, 
+    function getTimestamp(bytes32 key, 
                           uint256 roundId) 
                           external view returns (uint256){
         
-        return roundIdTimestamp[keccak256(abi.encode(key))][roundId];
+        return roundIdTimestamp[key][roundId];
     }
 }
