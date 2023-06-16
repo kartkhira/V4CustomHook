@@ -127,7 +127,7 @@ contract DynamicOracle is BaseHook, IDynamicFeeManager, IAggregatorInterface {
     function latestAnswer(bytes32 key) external view returns(uint160) {
 
         //bytes32 pKey = keccak256(abi.encode(key));
-        return roundData[key][roundIds[key]];
+        return roundData[key][roundIds[key]-1];
     }
 
     function latestTimestamp(bytes32 key) external view returns(uint256) {

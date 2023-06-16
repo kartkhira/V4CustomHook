@@ -12,12 +12,14 @@ import {DynamicOracleImplementation} from "./implementation/DynamicOracleImpleme
 import {IPoolManager} from "@uniswap/core-next/contracts/interfaces/IPoolManager.sol";
 import {Test} from "forge-std/Test.sol";
 import {Hooks} from "@uniswap/core-next/contracts/libraries/Hooks.sol";
+import {TickMath} from "@uniswap/core-next/contracts/libraries/TickMath.sol";
 
 contract TestDynamicOracle is Test {
 
 
     int24 constant MAX_TICK_SPACING = 32767;
     uint160 constant SQRT_RATIO_10_1 = 250541448375047931186413801569;
+    uint160 constant SQRT_RATIO_1_1 =  79228162514264337593543950336;
 
     TestERC20 token0;
     TestERC20 token1;
@@ -60,7 +62,7 @@ contract TestDynamicOracle is Test {
             }
         }
 
-        manager.initialize(key, SQRT_RATIO_10_1);
+        manager.initialize(key, SQRT_RATIO_1_1);
 
         swapRouter = new PoolSwapTest(manager);
 
@@ -70,6 +72,10 @@ contract TestDynamicOracle is Test {
         token1.approve(address(swapRouter), type(uint256).max);
     }
 
+    /**
+     * @notice Test to check if dynamic fees. 
+     * Fees is increasing linearly with time
+     */
     function testDynamicFee() public {
 
         uint24 oldFee = dynamicOracle.getFee(key);
@@ -79,7 +85,69 @@ contract TestDynamicOracle is Test {
         assertGt(newFee, oldFee, "New Fee should be greater than old Fee");
     }
 
-    function testOracleAfterSwap() public {
+    /**
+     * @notice Test to check if swap is updating price feeds in oracle Hook
+     */
+    function testPriceFeedAfterSwap() public {
         
+
+        vm.warp(200);
+        swapRouter.swap(
+            key,
+            IPoolManager.SwapParams(false, 1e18, SQRT_RATIO_1_1 + 1),
+            PoolSwapTest.TestSettings(true, true)
+        );
+
+        uint160 oldPrice = dynamicOracle.latestAnswer(id); 
+        swapRouter.swap(
+            key,
+            IPoolManager.SwapParams(false, 1e18, SQRT_RATIO_1_1 + 2),
+            PoolSwapTest.TestSettings(true, true)
+        );
+
+        uint160 newPrice = dynamicOracle.latestAnswer(id);
+
+        assertEq(newPrice, SQRT_RATIO_1_1 + 2);
+        assertGt(newPrice, oldPrice, "New Price should be greater than old Price");
+
+        /**
+        emit log_uint(dynamicOracle.latestRound(id));
+        emit log_uint(dynamicOracle.latestAnswer(id));
+        emit log_uint(dynamicOracle.latestTimestamp(id));
+        */
+    }
+    /**
+     * @notice Test to check full oracle updates
+     */
+    function testOracleAfterSwap() public {
+                
+        swapRouter.swap(
+            key,
+            IPoolManager.SwapParams(false, 1e18, SQRT_RATIO_1_1 + 1),
+            PoolSwapTest.TestSettings(true, true)
+        );
+
+        uint256 oldRoundId =    dynamicOracle.latestRound(id); 
+        uint256 oldTime    =    dynamicOracle.latestTimestamp(id);
+
+        vm.warp(2000);
+
+        swapRouter.swap(
+            key,
+            IPoolManager.SwapParams(false, 1e18, SQRT_RATIO_1_1 + 2),
+            PoolSwapTest.TestSettings(true, true)
+        );
+
+        uint256 newRoundId =    dynamicOracle.latestRound(id); 
+        uint256 newTime    =    dynamicOracle.latestTimestamp(id);
+
+        assertGt(newRoundId, oldRoundId, "New RoundId should be greater than old RoundId");
+        assertEq(newTime - oldTime, 2000 - 1);
+
+        /**
+        emit log_uint(dynamicOracle.latestRound(id));
+        emit log_uint(dynamicOracle.latestAnswer(id));
+        emit log_uint(dynamicOracle.latestTimestamp(id));
+        */
     }
 }
