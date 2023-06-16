@@ -17,6 +17,10 @@ contract DynamicOracle is BaseHook, IDynamicFeeManager, IAggregatorInterface {
     uint256 deployTimestamp;
     uint24 feeCount;
     using PoolId for IPoolManager.PoolKey;
+
+    event OracleInitialized(address indexed poolManager, uint256 deployTimestamp);
+    event OracleDataAdded(bytes32 indexed key, uint160 value, uint256 timestamp);
+
     /// @notice Oracle pools do not have fees because they exist to serve as an oracle for a pair of tokens
     error OnlyOneOraclePoolAllowed();
 
@@ -34,6 +38,8 @@ contract DynamicOracle is BaseHook, IDynamicFeeManager, IAggregatorInterface {
 
     constructor(IPoolManager _poolManager) BaseHook(_poolManager) {
         deployTimestamp = block.timestamp;
+        emit OracleInitialized(address(_poolManager), deployTimestamp);
+
     }
 
     /**
@@ -122,6 +128,8 @@ contract DynamicOracle is BaseHook, IDynamicFeeManager, IAggregatorInterface {
         latestStamp[key] = timeStamp;
         roundIdTimestamp[key][roundIds[key]] = timeStamp;
         roundIds[key]++;
+
+        emit OracleDataAdded(key,val, timeStamp);
     }
 
     function latestAnswer(bytes32 key) external view returns(uint160) {
