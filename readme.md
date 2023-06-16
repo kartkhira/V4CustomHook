@@ -1,9 +1,6 @@
 forge test --match-contract TestDynamicOracle --match-test testOracleAfterSwap -vvvv
-forge test -vvvv
 
-# Hook using dynamic fees and acting as oracle
-
-### Please note that selfdestruct is not supported by foundry causing verfication issues. 
+# V4CustomHook
 
 ###
 1. Setup
@@ -20,4 +17,7 @@ Replace PoolManager.sol and PoolId.sol with v4-contracts at https://github.com/U
 ```
 forge test -vvvv
 ```
-
+4. RunningSeprate Tests
+```
+forge test --match-contract TestDynamicOracle --match-test testOracleAfterSwap -vvvv
+```
